@@ -1,14 +1,11 @@
-library(dplyr)
-library(odbc)
 library(DBI)
-library(tidyverse)
-
+library(odbc)
+library(dplyr)
 
 
 ###############################################################################################
 # Levantamos la base de legales                                                               #
 ###############################################################################################
-
 
 
 conn <- dbConnect(odbc::odbc(), driver = "sql server", 
@@ -19,29 +16,32 @@ conn <- dbConnect(odbc::odbc(), driver = "sql server",
 
 amparos <- dbGetQuery(conn = conn, "SELECT * FROM [DB_CIENCIADEDATOS].[dbo].[CDD_SOCIOS_BASE_LEGALES]")
 
-amparos_mac <- amparos %>% 
+
+amparos_mac <- amparos %>%
   filter(PRODUCTO_PRINCIPAL == "Medicamentos de Alta Complejidad- MAC")
 
-sum(is.na(amparos_mac$DNUM_IC))
+#sum(is.na(amparos_mac$DNUM_IC))
 
 ###############################################################################################
 # Sacamos los casos que no tenemos IC                                                         #
 ###############################################################################################
 
-amparos_mac_sin_ic <- amparos_mac %>% 
+amparos_mac_sin_ic <- amparos_mac %>%
   filter(is.na(DNUM_IC))
 
-amparos_mac_con_ic <- amparos_mac %>% 
+amparos_mac_con_ic <- amparos_mac %>%
   filter(!is.na(DNUM_IC))
 
-# ctrl 
+# ctrl
 
 nrow(amparos_mac)-nrow(amparos_mac_con_ic)-nrow(amparos_mac_sin_ic)
 
 
+
 ###############################################################################################
-# Obtenemos los consumos de medicamentos de esos IC en situacion actual                       #
+# Levantamos los consumos                                                                     #
 ###############################################################################################
+
 
 ic_buscar <- paste0("'",amparos_mac_con_ic$DNUM_IC,"'", collapse = ", ")
 
@@ -66,7 +66,9 @@ consumos_medicamentos_ic_amparos <- dbGetQuery(conn = conn, paste("SELECT B.DNUM
       ,[NUM_LOTE_CONTRATACION]
       ,B.[DID_SOCIO]
       ,[DID_TIPODEUDOR]
-      ,[DID_MEDICAMENTO]
+      ,A.[DID_MEDICAMENTO]
+      ,E.[DDES_MEDICAMENTO]
+      ,E.[DDES_MONODROGA]
       ,[DID_TIPO_FACTURACION]
       ,[DID_INSTPRESTACION]
       ,[ORIGEN]
@@ -79,6 +81,7 @@ consumos_medicamentos_ic_amparos <- dbGetQuery(conn = conn, paste("SELECT B.DNUM
       ,[DID_COBERTURA]
       ,[CONTEXTO]
       ,[DID_PMI]
+      ,B.DDES_MOTIVO_BAJA
   FROM [DBPresupuestos].[dbo].[DWCONS_CONSUMOS_SITUACION_ACTUAL_202509] A
   LEFT JOIN DWDATAMART.dbo.DSOCIO B
   ON A.DID_SOCIO = B.DID_SOCIO
@@ -86,77 +89,9 @@ consumos_medicamentos_ic_amparos <- dbGetQuery(conn = conn, paste("SELECT B.DNUM
   ON A.DID_GRUPO_PRESUPUESTO = C.DID_GRUPO_PRESUPUESTO
   LEFT JOIN DWDATAMART.dbo.DNOMENCLADOR D 
   ON A.DID_NOMENCLADOR = D.DID_NOMENCLADOR
+  LEFT JOIN [DWDATAMART].[dbo].[DMEDICAMENTO] E
+  ON A.DID_MEDICAMENTO = E.DID_MEDICAMENTO
   WHERE B.DNUM_IC in (" ,ic_buscar,")
   AND C.GRUPO = '16 - MEDICAMENTOS'"))
 
-
-agrup_medicamento <- consumos_medicamentos_ic_amparos %>% 
-  group_by(DDES_CORTA_PRACTICA) %>% 
-  summarise(NUM_VALOR_ACTUALIZADO_EN_MILL = sum(NUM_VALOR_ACTUALIZADO)/1000000) %>% 
-  arrange(desc(NUM_VALOR_ACTUALIZADO_EN_MILL))
-
-
-
-agrup_medicamento$decil <- cut(agrup_medicamento$NUM_VALOR_ACTUALIZADO_EN_MILL,
-                breaks = quantile(agrup_medicamento$NUM_VALOR_ACTUALIZADO_EN_MILL,
-                                  probs = seq(0, 1, 0.1), na.rm = TRUE),
-                include.lowest = TRUE,
-                labels = FALSE)
-
-
-#Agrupar por decil y calcular cantidad y promedio
-resumen <- aggregate(NUM_VALOR_ACTUALIZADO_EN_MILL ~ decil, data = agrup_medicamento, 
-                     FUN = function(x) c(cantidad = length(x), promedio = mean(x)))
-
-
-
-# Convertir a data.frame
-resumen_df <- data.frame(
-  decil = resumen$decil,
-  cantidad = resumen$NUM_VALOR_ACTUALIZADO_EN_MILL[, "cantidad"],
-  promedio = resumen$NUM_VALOR_ACTUALIZADO_EN_MILL[, "promedio"]
-)
-
-
-resumen_df %>% 
-  ggplot(aes(x=factor(decil),y=promedio))+
-  geom_col()+
-  geom_text(aes(label = round(promedio, 1)), 
-            vjust = -0.5, size = 4) +
-  labs(title = "Promedio por decil",
-       x = "Decil",
-       y = "Promedio") +
-  theme_minimal()
-
-
-###############################################################################################
-# Graficamos el decil 9 y 10                                                                  #
-###############################################################################################
-
-
-agrup_medicamento %>% 
-  filter(decil>=9) %>% 
-  ggplot(aes(NUM_VALOR_ACTUALIZADO_EN_MILL)) +
-  geom_boxplot()+
-  theme_bw()
-
-agrup_medicamento %>% 
-  filter(decil>=9) %>% 
-  ggplot(aes(NUM_VALOR_ACTUALIZADO_EN_MILL)) +
-  geom_histogram()+
-  theme_bw()
-
-
-
-consumos_medicamentos_ic_amparos %>% 
-  group_by(DNUM_IC) %>% 
-  summarise(NUM_VALOR_ACTUALIZADO_EN_MILL = sum(NUM_VALOR_ACTUALIZADO)/1000000) %>% 
-  arrange(desc(NUM_VALOR_ACTUALIZADO_EN_MILL)) %>% View()
-
-
-
-consumos_medicamentos_ic_amparos %>% 
-  group_by(DNUM_IC,DID_NOMENCLADOR,DDES_CORTA_PRACTICA) %>% 
-  summarise(NUM_VALOR_ACTUALIZADO_EN_MILL = sum(NUM_VALOR_ACTUALIZADO)/1000000) %>% 
-  arrange(desc(NUM_VALOR_ACTUALIZADO_EN_MILL)) %>% View()
-  
+save(amparos, consumos_medicamentos_ic_amparos, file = "amparos_consumos.RData")
