@@ -48,11 +48,13 @@ ic_buscar <- paste0("'",amparos_mac_con_ic$DNUM_IC,"'", collapse = ", ")
 # CONSUMOS DESDE ABRIL 2023 A SEPTIEMBRE 2025 ACTUALIZADOS
 
 consumos_medicamentos_ic_amparos <- dbGetQuery(conn = conn, paste("SELECT B.DNUM_IC
+      ,[DCOD_SEXO]
       ,[DID_AGRUPAMIENTO]
       ,[DNUM_ANOMES_PRESTACION]
       ,[DNUM_FILIAL_CONSUMO]
       ,[DNUM_FILIAL_SERVICIO]
-      ,[DID_PLAN]
+      ,A.[DID_PLAN]
+      ,B.[DCOD_PLAN]
       ,A.[DID_NOMENCLADOR]
       ,D.DDES_CORTA_PRACTICA
       ,[DID_ENTPRESTADORA_CONT]
@@ -91,6 +93,8 @@ consumos_medicamentos_ic_amparos <- dbGetQuery(conn = conn, paste("SELECT B.DNUM
   ON A.DID_NOMENCLADOR = D.DID_NOMENCLADOR
   LEFT JOIN [DWDATAMART].[dbo].[DMEDICAMENTO] E
   ON A.DID_MEDICAMENTO = E.DID_MEDICAMENTO
+  LEFT JOIN [DWDATAMART].[dbo].[DPLAN] F
+  ON A.DID_PLAN = F.DID_PLAN
   WHERE B.DNUM_IC in (" ,ic_buscar,")
   AND C.GRUPO = '16 - MEDICAMENTOS'"))
 
