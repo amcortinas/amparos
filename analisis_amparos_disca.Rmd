@@ -1,0 +1,666 @@
+---
+title: "Amapros Disca"
+output: html_document
+date: "2025-11-27"
+---
+
+
+# DIRECTORIO DE TRABAJO  "Z:/DATA MINING/desarrollo/seba/61-Amparo_Disca"
+```{r}
+#Librerias
+library(googlesheets4)
+library(dplyr)
+library(tidyr)
+library(readxl)
+library(janitor)
+library(ggplot2)
+library(DBI)
+library(odbc)
+library(RODBC)
+library(DBI) 
+
+funserver <- Sys.getenv("RFUN_PATH")
+funserver <- gsub("GciaÂ Presupuesto", "Gcia Presupuesto", funserver)
+
+source(paste0(funserver,"/dates.R"))
+source(paste0(funserver,"/my_sqlQuery_encoding.R"))
+source(paste0(funserver,"/strings.R"))
+# source(paste0(funserver,"/sqlQueryInEncoding.R"))
+
+
+source(paste0(funserver,"/sqlQueryIn.R"))
+
+'%notin%' <- function(x,y)!('%in%'(x,y))
+options(scipen = 999)
+
+```
+
+
+```{r}
+# Directorio de trabajo
+setwd("Z:/DATA MINING/desarrollo/seba/61-Amparo_Disca")
+```
+
+
+
+```{r}
+
+
+sql_qry <- paste0("SELECT [ASUNTO]
+      ,[CARATULA]
+      ,[CARTERA]
+      ,[TIPO_DE_PROCESO]
+      ,[PRODUCTO_PRINCIPAL]
+      ,[SUB_PRODUCTO_PRINCIPAL]
+      ,[CARTERA_ACTIVA_SN]
+      ,[FECHA_INICIO]
+      ,[FECHA_CIERRE]
+      ,[NOMBRE]
+      ,[NUMERO_DE_CONTRATO]
+      ,[NUMERO_DE_DOCUMENTO]
+      ,[NUMERO_DE_SOCIO]
+      ----,[TIPO_DE_RELACIÓN]
+      ,[CARACTER]
+      ,[DNUM_IC]
+  FROM [DB_CIENCIADEDATOS].[dbo].[CDD_SOCIOS_BASE_LEGALES]")
+
+# conn <- odbcConnect("cienciadedatos")
+conn <- dbConnect(odbc::odbc(),
+                      Driver = "SQL Server",  
+                      Server = "DWDATAMART.OSDE.AR",
+                      Database = "DB_CIENCIADEDATOS",
+                      Port = 1433,            
+                      encoding = "UTF-8")  
+    
+tictoc::tic()
+data_legales <- dbGetQuery(conn,sql_qry)
+tictoc::toc()
+
+data_legales <- data_legales %>%  unique.array()
+
+str(data_legales)
+```
+
+# 710 sin DNUM IC # utilizo como variable para contar registros unicos " NOMBRE" porq es la unica variable 
+# para identificar q no tiene NA 
+```{r}
+# cantidad de Registros sin DNUM IC
+data_legales %>%  filter(is.na(DNUM_IC)) %>%  count()
+
+# cantidad de caratulas  con el mismo nombre sin DNUM ICn_distinc de nombre
+data_legales %>%
+  filter(is.na(DNUM_IC)) %>% 
+  # n_distinct(NOMBRE)
+  group_by(NOMBRE) %>% summarise(n=n())%>%  count()
+
+sum(is.na(data_legales$
+            DNUM_IC))
+
+```
+
+
+
+```{r}
+# 1ro tomo los dni con logitud ok luego los que tiene logitud 11 (asumo q son CUIT/CUIL, extraigo el dni)
+# paro los otros casos tomo nruo de contrato  y busco 
+df_legales <-  data_legales %>%  mutate(LONGITUD_DNI = nchar(NUMERO_DE_DOCUMENTO),
+                                TOMAR_DNI = ifelse(is.na(DNUM_IC) & (LONGITUD_DNI %in% c(7,8)), 
+                                                1, 0), 
+                                DNI_OK = ifelse(LONGITUD_DNI== 11 , substr (NUMERO_DE_DOCUMENTO, 3,10), 0
+                                                ), 
+                                DNI_OK = ifelse(TOMAR_DNI== 1,NUMERO_DE_DOCUMENTO,  DNI_OK)
+                                )
+
+
+
+
+sql_qry <- paste0("  SELECT [DNUM_IC] as DNUM_IC_DNI 
+                            ,[DNUM_DOC]  as NUMERO_DE_DOCUMENTO
+                            ,[DNUM_SOCIO]  
+                    FROM [DWDATAMART].[dbo].[DSOCIO]
+                    WHERE [DNUM_DOC] in (#) ")
+
+conn <- odbcConnect("datamart")
+tictoc::tic()
+data_ic_dni <- sqlQueryIn(conn, unique(df_legales$DNI_OK), sql_qry )
+tictoc::toc()
+
+data_ic_dni <- data_ic_dni%>% mutate(NUMERO_DE_DOCUMENTO = as.integer(trimws(NUMERO_DE_DOCUMENTO)),
+                                     NUMERO_DE_CONTRATO =  as.integer(substr(DNUM_SOCIO,1,9 ))
+                                     ) %>%
+                          filter(NUMERO_DE_DOCUMENTO != 0) %>% 
+                          select(-DNUM_SOCIO)
+  
+head(data_ic_dni)
+
+
+str(data_ic_dni)
+
+data_ic_dni %>% group_by(NUMERO_DE_DOCUMENTO) %>%  summarise(n=n()) %>% arrange (-n)
+
+# save(data_ic_dni, file= "data/data_ic_dni.Rdata")
+# load( "data/data_ic_dni.Rdata")
+
+```
+
+
+
+
+
+
+Union de tablas 
+
+```{r}
+# 1ro por dni 
+df_legales <-  df_legales %>%  left_join(data_ic_dni ) %>% 
+                                    mutate( DNUM_IC = ifelse( (is.na(DNUM_IC) & !is.na(DNUM_IC_DNI)),
+                                                              DNUM_IC_DNI, 
+                                                              DNUM_IC) ) %>% 
+                                    select(-DNUM_IC_DNI)
+
+
+  
+
+# 667	cantidad de registros sin DNUM IC
+df_legales %>%  filter(is.na(DNUM_IC)) %>%  count()
+
+
+# 632 - cantidad de caratulas  con el mismo nombre sin DNUM ICn_distinc de nombre
+df_legales %>%
+  filter(is.na(DNUM_IC)) %>% 
+  # n_distinct(NOMBRE)
+  group_by(NOMBRE) %>% summarise(n=n())%>%  count()
+
+
+
+```
+
+
+Ic segun Nro de cotrato  (sin nro de orden) y apellido y nombre)
+
+```{r}
+#  socios q no tiene DNUM_IC, DNI incompleto ( 7 u 8 cifras) y tienen nurmeor de contrato cargado ( 53 casos)
+
+nro_contrato_incom <- df_legales %>%  filter(is.na(DNUM_IC) & 
+                                                TOMAR_DNI == 0 &
+                                                !is.na(NUMERO_DE_CONTRATO)
+                                                 )
+# socios q no tengo ni numero de socios, ni dni completo o na, ni numero de contrato. (202 casos)
+socios_sin_identficar <- df_legales %>%  filter(is.na(DNUM_IC) & 
+                                                TOMAR_DNI == 0 &
+                                                is.na(NUMERO_DE_CONTRATO)
+                                                 )
+
+# quito la coma del campo nmomnre y apellido para poder buscar en Dsocio
+nro_contrato_incom$NOMBRE_OK <- gsub(",", "", nro_contrato_incom$NOMBRE)
+
+
+sql_qry <- paste0(" SELECT [DNUM_IC] as DNUM_IC_APELLIDO 
+          ,[DNUM_SOCIO]  
+          ,[DDES_APELLIDO]
+      ,[DDES_NOMBRE]
+      ,[DDES_APELLIDO_NOMBRE]
+      ,[DNUM_DOC]
+      ,[DCOD_SEXO]
+      ,[FEC_NACIMIENTO] 
+                    FROM [DWDATAMART].[dbo].[DSOCIO]
+                    WHERE  [DDES_APELLIDO_NOMBRE] in (#) ")
+
+
+sqlQueryIn <- function(conn, values, qry){
+  
+  # Función interna para procesar el lote y ejecutar la consulta
+  f <- function(x) {
+    xx <- paste(x, collapse = ",")
+    q <- gsub("#", xx, qry)
+    
+    # Limpieza: remueve saltos de línea y consolida espacios
+    q <- stringr::str_replace_all(stringr::str_replace_all(q, "\n", ""), "\\s+", " ")
+    
+    # El paquete 'RODBC' (asumo que es el que usas) devuelve un data.frame.
+    output <- RODBC::sqlQuery(conn, q) 
+    return(output)
+  }
+  
+  max <- 1000 # Límite de 1000 para la cláusula IN de SQL Server
+  
+  if (class(values) == "character"){
+    # 1. ESCAPAR: Reemplaza cualquier comilla simple interna (') con dos comillas ('')
+    values_escaped <- gsub("'", "''", values, fixed = TRUE) 
+    
+    # 2. ENCOMILLAR: Agrega las comillas simples externas para SQL
+    values <- paste("'", values_escaped, "'", sep = "")
+  }
+  
+  # División en lotes (chunks)
+  x <- seq_along(values)
+  values.sp <- split(values, ceiling(x / max))
+  
+  # Ejecución de la consulta por lotes
+  result <- lapply(values.sp, f)
+  
+  # Combina todos los resultados en un solo data frame
+  result <- as.data.frame(do.call(rbind, result))
+  return(result)
+}
+
+conn <- odbcConnect("datamart")
+tictoc::tic()
+data_ic_nombre <- sqlQueryIn(conn, as.character(unique(nro_contrato_incom$NOMBRE_OK)), sql_qry )
+tictoc::toc()
+
+head(data_ic_nombre)
+
+str(data_ic_nombre)
+
+
+# identifico 46 socios mas de los 53 casos
+data_ic_nombre <- data_ic_nombre %>%   mutate(NUMERO_DE_CONTRATO = as.integer(substr(DNUM_SOCIO,1,9 )) ,
+                                              IC_X_APELLIDO = "SI") %>%  
+                              right_join(nro_contrato_incom, by= c('NUMERO_DE_CONTRATO' = 'NUMERO_DE_CONTRATO', 
+                                                                   'DDES_APELLIDO_NOMBRE' ='NOMBRE_OK' )) %>% 
+                              filter(!is.na(DNUM_IC_APELLIDO)) %>% 
+                              select( DNUM_IC_APELLIDO,NOMBRE,
+                                       NUMERO_DE_CONTRATO,DNUM_SOCIO,IC_X_APELLIDO ) 
+
+
+  # cruces con data legales   
+df_legales <- df_legales %>%   left_join (data_ic_nombre, by=c('NOMBRE','NUMERO_DE_CONTRATO' ) )  %>% 
+                              mutate( DNUM_IC = ifelse( (is.na(DNUM_IC) & !is.na(DNUM_IC_APELLIDO)),
+                                                              DNUM_IC_APELLIDO, 
+                                                              DNUM_IC) ) %>% unique.array() %>% 
+                                    select(-DNUM_IC_APELLIDO
+                                          )
+             
+
+
+
+
+
+
+
+```
+
+
+```{r}
+# 627 cantidad de registros sin DNUM IC
+
+ df_legales %>%  filter(is.na(DNUM_IC)) %>%  count()
+
+# 593 - cantidad de caratulas  con el mismo nombre sin DNUM ICn_distinc de nombre
+df_legales %>%
+  filter(is.na(DNUM_IC)) %>% 
+  # n_distinct(NOMBRE)
+  group_by(NOMBRE) %>% summarise(n=n())%>%  count()
+
+```
+
+Consumos SA desde 202503
+```{r}
+
+sql_qry <- paste0("SELECT SA.[DID_SOCIO]
+       ,SOC.DNUM_IC
+      ,[DNUM_FILIAL_SERVICIO]
+      ,NOM.DCOD_PRACTICA
+      ,NOM.DDES_CORTA_PRACTICA
+      ,[DID_ENTPRESTADORA_CONT]
+      , MED.DCOD_MEDICAMENTO
+      , MED.DDES_MEDICAMENTO
+      , MED.DDES_ACCION
+      ,[NUM_CANTIDAD]
+      ,SUM([NUM_VALOR_PAGADO_HISTORICO]) as IMPORTE_HISTORICO
+      ,SUM([NUM_VALOR_ACTUALIZADO]) as IMPORTE_ACT
+      ,CC.DCOD_CLASECOSTO
+      ,CC.DDES_CLASECOSTO
+      ,[DID_TIPOPRESTACION]
+      ,[DID_ORIGENGASTO]     
+      ,GP.GRUPO_PRESUPUESTO
+      ,[DID_DISCAP_NOVAL]
+      ,[DID_MOSTRADOR]
+      ,[DID_ENTPRESTADORA_PRESCRIPTOR]
+      ,FEC.DNUM_ANOMES_PRESTACION
+      ,[CONTEXTO]
+      ,[DID_PMI]
+  FROM [DBPresupuestos].[dbo].[DWCONS_CONSUMOS_SITUACION_ACTUAL_202510] SA
+    LEFT JOIN [DWDATAMART].[dbo].[DSOCIO] SOC
+        on SA.DID_SOCIO = SOC.DID_SOCIO
+    LEFT JOIN [DWDATAMART].[dbo].[DGRUPO_PRESUPUESTO] GP
+        on SA.DID_GRUPO_PRESUPUESTO = GP.DID_GRUPO_PRESUPUESTO
+    LEFT JOIN [DWDATAMART].[dbo].[DCLASECOSTO] CC
+        on SA.DID_CLASECOSTO = CC.DID_CLASECOSTO
+    LEFT JOIN [DWDATAMART].[dbo].[DNOMENCLADOR] NOM
+        on SA.DID_NOMENCLADOR = NOM.DID_NOMENCLADOR    
+    LEFT JOIN [DWDATAMART].[dbo].[DMEDICAMENTO] MED
+        on SA.DID_MEDICAMENTO = MED.DID_MEDICAMENTO
+    LEFT JOIN [DWDATAMART].[dbo].[DFECHA] FEC
+        on SA.DID_FECHA_PRESTACION = FEC.DID_FECHA
+    WHERE SOC.DNUM_IC in  (#)
+    GROUP BY  SA.[DID_SOCIO]
+       ,SOC.DNUM_IC
+      ,[DNUM_FILIAL_SERVICIO]
+      ,NOM.DCOD_PRACTICA
+      ,NOM.DDES_CORTA_PRACTICA
+      ,[DID_ENTPRESTADORA_CONT]
+      ,[NUM_CANTIDAD]
+      ,CC.DCOD_CLASECOSTO
+      ,CC.DDES_CLASECOSTO
+      , MED.DCOD_MEDICAMENTO
+      , MED.DDES_MEDICAMENTO
+      , MED.DDES_ACCION
+      ,[DID_TIPOPRESTACION]
+      ,[DID_ORIGENGASTO]     
+      ,GP.GRUPO_PRESUPUESTO
+      ,[DID_DISCAP_NOVAL]
+      ,[DID_MOSTRADOR]
+      ,[DID_ENTPRESTADORA_PRESCRIPTOR]
+      ,FEC.DNUM_ANOMES_PRESTACION
+      ,[CONTEXTO]
+      ,[DID_PMI]
+  ")
+ 
+```
+
+
+```{r}
+ic_legales <- df_legales[!is.na(df_legales$DNUM_IC), ]
+ic_legales <- unique(ic_legales$DNUM_IC)
+
+conn <- odbcConnect("presupuestos")
+tictoc::tic()
+consumos_sa <- sqlQueryIn(conn, as.character(df_legales$DNUM_IC), sql_qry )
+tictoc::toc()
+
+tail(consumos_sa)
+# save(consumos_sa, file= "data/consumos_sa.Rdata")
+
+load("data/consumos_sa.Rdata")
+```
+
+
+# socios con marca y consumos en  SA 
+```{r}
+# Grupos ppto Disca
+gupo_ppto_disca <-  c(
+                      12901,12902,12903,12904
+                      ,12905,12906,12907,12910
+                      ,12909,12908,12911,12912
+                      ,12913,12914,12915,12916)
+
+# Clase costo disca
+cc_disca <- c(12901,12902,12903,12904
+            ,12905,12906,12907,12910
+            ,12909,12908,12911,12912
+            ,12913,12914,12915,12916
+            ,22901,22902,22903,22904
+            ,22905,22906,22907,22908
+            ,22909,22910,22911
+              )
+
+# filtro socios con marca (si 1= privada y 2 publica)
+soc_marca_cons <-  consumos_sa %>%
+      filter(DID_DISCAP_NOVAL > 0) %>%
+      mutate(
+    #columna para la agrupación
+    CONSUMO_DISCA = ifelse(
+      (GRUPO_PRESUPUESTO %in% gupo_ppto_disca |
+         DCOD_CLASECOSTO %in% cc_disca),
+      "SI",
+      "NO"
+    )
+  ) %>%
+    group_by(DNUM_IC, CONSUMO_DISCA) %>%
+    summarise( IMPORTE_ACT = sum(IMPORTE_ACT, na.rm = TRUE), 
+                          .groups = "drop" 
+  ) %>%
+    pivot_wider(
+    names_from = CONSUMO_DISCA,
+    values_from = IMPORTE_ACT,
+    names_prefix = "IMPORTE_ACT_",
+    ) %>%
+  rename(
+    IMPORTE_ACT_DISCA = IMPORTE_ACT_SI,
+    IMPORTE_ACT_NO_DISCA = IMPORTE_ACT_NO
+  )
+
+soc_marca_cons[is.na(soc_marca_cons)] <- 0
+# los identifico con marca disca
+soc_marca_cons$MARCA_DISCA <- "SI"
+
+
+```
+
+
+```{r}
+# filtro socios con marca (si 1= privada y 2 publica)
+soc_sin_marca_cons <-  consumos_sa %>%
+      filter(DID_DISCAP_NOVAL < 1) %>%
+      mutate(
+    #columna para la agrupación
+    CONSUMO_DISCA = ifelse(
+      (GRUPO_PRESUPUESTO %in% gupo_ppto_disca | DCOD_CLASECOSTO %in% cc_disca),
+      "SI",
+      "NO"
+    )
+  ) %>%
+    group_by(DNUM_IC, CONSUMO_DISCA) %>%
+    summarise( IMPORTE_ACT = sum(IMPORTE_ACT, na.rm = TRUE), 
+                          .groups = "drop" 
+  ) %>%
+    pivot_wider(
+    names_from = CONSUMO_DISCA,
+    values_from = IMPORTE_ACT,
+    names_prefix = "IMPORTE_ACT_",
+    ) %>%
+  rename(
+    IMPORTE_ACT_DISCA = IMPORTE_ACT_SI,
+    IMPORTE_ACT_NO_DISCA = IMPORTE_ACT_NO
+    
+  )
+
+soc_sin_marca_cons[is.na(soc_sin_marca_cons)] <- 0
+soc_sin_marca_cons$MARCA_DISCA <- "NO"
+
+# control si hays socios q estan en la base con marca y tambien en sin marca
+# La marca es al momento del consumo por lo q podria estar en la dos bases 
+
+
+ic_ambas_bases_cons <- soc_marca_cons %>% inner_join(soc_sin_marca_cons, by='DNUM_IC') %>% 
+                                      mutate(IMPORTE_ACT_NO_DISCA = IMPORTE_ACT_NO_DISCA.x +IMPORTE_ACT_NO_DISCA.y,
+                                             IMPORTE_ACT_DISCA = IMPORTE_ACT_DISCA.x +IMPORTE_ACT_DISCA.y) %>% 
+                                      select(DNUM_IC, IMPORTE_ACT_NO_DISCA, IMPORTE_ACT_DISCA) %>%  
+                                      mutate(MARCA_DISCA = "SI")
+
+# saco de ambas base los registros  de los IC q estan en ambas bases
+
+soc_sin_marca_cons<- soc_sin_marca_cons %>%  filter(DNUM_IC %notin% ic_ambas_bases_cons$DNUM_IC)
+soc_marca_cons<- soc_marca_cons %>%  filter(DNUM_IC %notin% ic_ambas_bases_cons$DNUM_IC)
+
+# Agrego a la base de socios  q estan en ambas base en la bse de marca disca y consumo 
+soc_marca_cons <- rbind(soc_marca_cons,ic_ambas_bases_cons)
+
+
+
+```
+
+
+Union de bases con Legales 
+```{r}
+# Union de bases se socios con marca y consumo y si marca y consumos
+soc_consumos <- rbind(soc_sin_marca_cons,  soc_marca_cons)
+sum(is.na(soc_consumos))
+
+df_legales <- df_legales %>%  left_join(soc_consumos, by = 'DNUM_IC') 
+
+```
+
+
+
+Meses de consumo | importe ultimo mes
+```{r}
+#Meses de consum
+ic_meses_consumo<-  consumos_sa %>%  group_by(DNUM_IC) %>%  summarise(MESES_CONSUMO = n_distinct(DNUM_ANOMES_PRESTACION)) %>% arrange(-MESES_CONSUMO)
+
+#importe ultimo mes
+ic_impo_ultimo<- consumos_sa %>%
+  group_by(DNUM_IC) %>%
+  mutate(
+    ULTIMO_ANOMES = max(DNUM_ANOMES_PRESTACION, na.rm = TRUE)
+  ) %>%
+  filter(DNUM_ANOMES_PRESTACION == ULTIMO_ANOMES) %>%
+  group_by(DNUM_IC, DNUM_ANOMES_PRESTACION) %>%
+  summarise(
+    IMPORTE_TOTAL_ULTIMO_MES = sum(IMPORTE_ACT, na.rm = TRUE),
+    .groups = "drop" 
+  ) %>%
+  select(DNUM_IC, IMPORTE_TOTAL_ULTIMO_MES)
+
+
+df_legales <- df_legales %>%  left_join(ic_meses_consumo, by = 'DNUM_IC') %>% 
+                                  left_join(ic_impo_ultimo, by = 'DNUM_IC')
+
+```
+
+
+
+```{r}
+# luego los socios  q no estan en ambas bases, pero estan en la base de legales - buscar en Dmarcas
+
+socios_sin_marca_sin_cons <- df_legales %>%  filter( is.na(MARCA_DISCA))
+
+
+sql_qry <- paste0("SELECT  [DID_SOCIO]
+      ,[MARCA_CODIGO]
+      ,[MARCA_ORIGEN]
+      ,[MARCA]
+      ,[MARCA_FECHA_DESDE]
+      ,[MARCA_FECHA_HASTA]
+      ,[DNUM_IC]
+      ,[MARCA_CATEGORIA]
+      ,[MARCA_SUB_CATEGORIA]
+      ,[MARCA_PATOLOGIA_ASOCIADA]
+      ,[FECHA_UPDATE]
+      ,[DID_SOCIO_MARCA]
+  FROM [DWDATAMART].[dbo].[DSOCIO_MARCAS] 
+  where [DNUM_IC]  in (#)")
+
+conn <- odbcConnect("presupuestos")
+tictoc::tic()
+marcas_disca <- sqlQueryIn(conn, as.character(socios_sin_marca_sin_cons$DNUM_IC), sql_qry )
+tictoc::toc()
+
+tail(marcas_disca)
+ # save(marcas_disca, file= "data/marcas_disca.Rdata")
+# load("data/marcas_disca.Rdata")
+```
+
+```{r}
+unique(marcas_disca$MARCA)
+
+marcas_disca <-  marcas_disca %>%  filter(MARCA == "DISCAPACIDAD") %>% 
+                                  group_by(DNUM_IC,MARCA ) %>% 
+                                  summarise(MARCA_VIGENCIA_FECHA_HASTA = max(MARCA_FECHA_HASTA)
+                                         ) %>%  
+                                  filter(MARCA_VIGENCIA_FECHA_HASTA >= 20221101) #  Margen por las dudas
+
+
+
+marcas_disca %>% group_by(DNUM_IC) %>% summarise(n=n()) %>% arrange(-n)
+
+
+df_legales <- df_legales %>%  left_join(marcas_disca, by='DNUM_IC') %>%  
+                                    mutate(MARCA_DISCA = ifelse( (is.na(MARCA_DISCA) & MARCA == "DISCAPACIDAD"), 
+                                                                 "SI - SIN COSUMO",MARCA_DISCA
+                                                                                          )
+                                          ) %>% 
+                                    mutate(MARCA_DISCA = ifelse( is.na(MARCA_DISCA), 
+                                                                 "SI - SIN COSUMO",
+                                                                 MARCA_DISCA
+                                                                                          )
+                                                                   ) 
+
+```
+
+```{r}
+# save(df_legales,file="data/df_legales.Rdata")
+```
+
+
+
+
+calculos 
+```{r}
+
+df_legales %>% group_by (MARCA_DISCA) %>% 
+                  summarise(SOCIOS = n_distinct(DNUM_IC),
+                            CAPITA_DISCA_ACT = mean(IMPORTE_ACT_DISCA),
+                            CAPITA_NO_DISCA_ACT = mean(IMPORTE_ACT_NO_DISCA),
+                            MAX_DISCA_ACT = max(IMPORTE_ACT_DISCA), 
+                            MAX_NO_DISCA_ACT = max(IMPORTE_ACT_DISCA),
+                            MIN_DISCA_ACT = min(IMPORTE_ACT_DISCA), 
+                            MIN_NO_DISCA_ACT = min(IMPORTE_ACT_DISCA)
+                            
+                            )
+
+
+
+# 1. Transformar los datos a formato largo (long format)
+df_largo <- df_legales %>% 
+  filter(MARCA_DISCA != "SI - SIN COSUMO") %>% 
+  pivot_longer(
+    cols = c(IMPORTE_ACT_DISCA, IMPORTE_ACT_NO_DISCA), # Columnas a pivotar
+    names_to = "CONSUMO_TIPO",                        # Nueva columna para los nombres
+    values_to = "IMPORTE_ACT"                         # Nueva columna para los valores
+  ) %>%
+  # Limpieza de nombres (Opcional, para que la leyenda sea más clara)
+  mutate(
+    CONSUMO_TIPO = case_when(
+      CONSUMO_TIPO == "IMPORTE_ACT_DISCA"    ~ "Consumo DISCA",
+      CONSUMO_TIPO == "IMPORTE_ACT_NO_DISCA" ~ "Consumo NO DISCA",
+      TRUE ~ CONSUMO_TIPO
+    )
+  )
+
+# 2. Crear el Boxplot
+grafico_boxplot <- ggplot(df_largo, aes(x = MARCA_DISCA, y = IMPORTE_ACT, fill = CONSUMO_TIPO)) +
+  
+  # Añadir las cajas de bigotes
+  geom_boxplot(outlier.shape = 1, # Define la forma de los outliers (puntos)
+               na.rm = TRUE) +    # Ignorar valores NA
+  
+  # Personalización de etiquetas y títulos
+  labs(
+    title = "Distribución de Importes de Consumo por Tipo de Marca y Discapacidad",
+    x = "Marca Discapacidad",
+    y = "Importe Activo ($)",
+    fill = "Tipo de Consumo" # Título de la leyenda
+  ) +
+  
+  # Aplicar un tema limpio
+  theme_minimal() +
+  
+  # Ajustar el ángulo de las etiquetas del eje X si los nombres son largos
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  
+  # Escala de Y en formato logarítmico (útil si hay valores muy dispersos)
+  scale_y_log10() 
+
+# Mostrar el gráfico
+print(grafico_boxplot)
+
+
+```
+
+```{r}
+
+nn<- df_legales %>% filter(!is.na(DNUM_IC)) %>%  group_by(NOMBRE) %>%  summarise(n=n()) %>% arrange(-n)
+
+nn %>% anti_join( (data_legales %>% filter(!is.na(DNUM_IC)) %>%  group_by(NOMBRE) %>%  summarise(n=n()) %>% arrange(-n)
+                   )
+                  )
+
+df_legales %>%  group_by(ASUNTO) %>%  summarise(n=n()) %>% arrange(-n)
+
+```
+
+
+
