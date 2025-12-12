@@ -18,6 +18,8 @@ library(DBI)
 library(odbc)
 library(RODBC)
 library(DBI) 
+library(stringr)
+library(stringi)
 
 funserver <- Sys.getenv("RFUN_PATH")
 funserver <- gsub("GciaÂ Presupuesto", "Gcia Presupuesto", funserver)
@@ -677,6 +679,19 @@ nn %>% anti_join( (data_legales %>% filter(!is.na(DNUM_IC)) %>%  group_by(NOMBRE
 df_legales %>%  group_by(ASUNTO) %>%  summarise(n=n()) %>% arrange(-n)
 
 ```
+
+```{r}
+
+#funcion para normalizar los subproductos DISCA 
+normaliza_subprod <- function(x) {
+  x %>%
+    str_trim() %>%                      
+    str_to_lower() %>%                  
+    stri_trans_general("Latin-ASCII")   
+}
+```
+
+
 ```{r}
 
 # Filtramos amparos DISCA de socios vivos, 
@@ -699,9 +714,19 @@ dsocio_vivos <- dsocio_vivos %>%
   mutate(DNUM_IC = as.character(DNUM_IC))
 
 
+
 # Productos DISCA desde el Excel enviado por Ale.
 productos_disca <- readxl::read_excel("data/Productos Disca.xlsx") %>% 
   dplyr::transmute(SUB_PRODUCTO_PRINCIPAL = trimws(`Producto principal (PROPR)`))
+
+
+# Agrego columna normalizada en ambas tablas
+productos_disca <- productos_disca %>%
+  mutate(SUB_NORM = normaliza_subprod(SUB_PRODUCTO_PRINCIPAL))
+
+df_legales <- df_legales %>%
+  mutate(SUB_NORM = normaliza_subprod(SUB_PRODUCTO_PRINCIPAL))
+
 
 
 df_legales_tabla <- df_legales %>% 
@@ -712,7 +737,7 @@ df_legales_tabla <- df_legales %>%
   # NO MAC
   dplyr::filter(PRODUCTO_PRINCIPAL != "Medicamentos de Alta Complejidad- MAC") %>% 
   # solo subproductos que están en la tabla de productos DISCA
-  dplyr::semi_join(productos_disca, by = "SUB_PRODUCTO_PRINCIPAL")
+  semi_join(productos_disca %>% select(SUB_NORM), by = "SUB_NORM")
 
 
 ```
