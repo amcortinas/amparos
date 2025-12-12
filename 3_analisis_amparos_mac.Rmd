@@ -1,0 +1,142 @@
+---
+title: "Informe Amparos"
+author: "CDD"
+output: 
+  html_document:
+     toc: yes
+     code_folding: hide
+     toc_float: yes
+     df_print: paged
+     theme: united
+     code_download: true
+     includes:
+       before_body: logo.html
+     warning: FALSE
+date: "`r format(Sys.time(), '%d-%m-%Y')`"
+
+---
+
+
+```{css, echo=FALSE}
+.tocify .tocify-item.active,
+.tocify .tocify-item.tocify-active { 
+  background-color: #0046b3 !important;
+  color: white !important;
+}
+```
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,warning = FALSE, message = FALSE)
+```
+
+
+```{r, include=FALSE}
+
+# Levantamos las liberias
+library(tidyverse)
+library(DBI)
+library(odbc)
+library(knitr)
+library(kableExtra)
+library(tictoc)
+library(dplyr)
+library(grid)
+library(lubridate)
+source("Z:/Gcia Presupuesto/DATA MINING/R/functions/dates.R")
+
+# Sacamos la notacion cientifica
+options(scipen = 999)
+
+# Set encoding
+invisible(Sys.setlocale("LC_CTYPE", "es_ES.UTF-8"))
+
+# Diferentes GIFS 
+# https://miro.medium.com/v2/resize:fit:1400/0*Xe3YnRNqb7AuIUdu.gif
+# https://antonio-richaud.com/blog/imagenes/archivo/36-kmeans-vs-gmm/kmeans.gif
+
+```
+
+
+```{r, include=FALSE}
+
+###############################################################################################
+# Levantamos la base de legales + consumos + precios monodroga                                #
+###############################################################################################
+
+load("Z:/Gcia Presupuesto/DATA MINING/desarrollo/alejandro/laburo/amparos/amparos_consumos.RData")
+
+amparos_mac <- amparos %>%
+  filter(PRODUCTO_PRINCIPAL == "Medicamentos de Alta Complejidad- MAC")
+
+load("Z:/Gcia Presupuesto/00_COSTOS/COSTOS/MEDICAMENTOS/PRECIOS_MINIMOS_MAC/PRECIOS_MINIMOS_MAC.RData")
+
+#sum(is.na(amparos_mac$DNUM_IC))
+
+###############################################################################################
+# Sacamos los casos que no tenemos IC                                                         #
+###############################################################################################
+
+amparos_mac_sin_ic <- amparos_mac %>%
+  filter(is.na(DNUM_IC))
+
+amparos_mac_con_ic <- amparos_mac %>%
+  filter(!is.na(DNUM_IC))
+
+# ctrl
+
+nrow(amparos_mac)-nrow(amparos_mac_con_ic)-nrow(amparos_mac_sin_ic)
+
+
+```
+
+```{r include=FALSE}
+
+consumos_medicamentos_ic_amparos$DDES_MOTIVO_BAJA <- trimws(consumos_medicamentos_ic_amparos$DDES_MOTIVO_BAJA)
+
+motivo_baja_fallec <- consumos_medicamentos_ic_amparos %>%
+  filter(grepl("allec", DDES_MOTIVO_BAJA, ignore.case = TRUE)) %>% 
+  select(DNUM_IC, DDES_MOTIVO_BAJA) %>% distinct()
+
+motivo_baja_fallec$DDES_MOTIVO_BAJA <- "Fallecimiento"
+
+amparos_mac <- amparos %>% 
+  filter(PRODUCTO_PRINCIPAL == "Medicamentos de Alta Complejidad- MAC") %>% 
+  left_join(motivo_baja_fallec)
+
+amparos_mac$DDES_MOTIVO_BAJA[is.na(amparos_mac$DDES_MOTIVO_BAJA)] <- "Cartera"
+
+
+```
+
+
+```{r}
+
+# No se encuentran los socios fallecidos y están solo los asuntos con Cartera Activa
+
+consumos_medicamentos_ic_amparos$DNUM_IC <- as.numeric(consumos_medicamentos_ic_amparos$DNUM_IC)
+
+socios_ult_mes <- consumos_medicamentos_ic_amparos %>%
+  group_by(DNUM_IC) %>%
+  filter(DNUM_ANOMES_PRESTACION == max(DNUM_ANOMES_PRESTACION)) %>%   # Último mes por socio
+  summarise(ULTIMO_MES = max(DNUM_ANOMES_PRESTACION),
+    IMPORTE_ULTIMO_MES = sum(NUM_VALOR_ACTUALIZADO, na.rm = TRUE)) %>%
+  ungroup() 
+
+
+amparos_mac_consumos <- amparos_mac %>%
+  filter(!is.na(DNUM_IC),CARTERA_ACTIVA_SN=="S") %>% 
+  select(DNUM_IC, ASUNTO) %>% 
+left_join(consumos_medicamentos_ic_amparos %>% 
+  group_by(DNUM_IC) %>% 
+  summarise(IMPORTE_ACUMULADO = sum(NUM_VALOR_ACTUALIZADO, na.rm = TRUE),
+            ULTIMO_MES = max(DNUM_ANOMES_PRESTACION, na.rm = TRUE),
+            MESES_CONSUMO=n_distinct(DNUM_ANOMES_PRESTACION, na.rm = TRUE),
+            TIPO_AMPARO="MAC") %>% 
+  left_join(socios_ult_mes) %>%
+  select(DNUM_IC,MESES_CONSUMO, IMPORTE_ACUMULADO, IMPORTE_ULTIMO_MES,ULTIMO_MES,TIPO_AMPARO)) %>%
+  filter(!is.na(MESES_CONSUMO)) %>% 
+  arrange(desc(IMPORTE_ACUMULADO))
+
+```
+
