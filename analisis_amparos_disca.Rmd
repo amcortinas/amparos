@@ -802,40 +802,5 @@ write_xlsx(tabla_disca, "data/tabla_disca_legales.xlsx")
   - `"SI - SIN COSUMO"`: tiene marca DISCAPACIDAD pero no se registran consumos en el período (se completa vía DSOCIO_MARCAS).
 
 
-```{r}
 
-#Cantidad por subproducto 
-
-df0 <- df_legales
-
-df1 <- df0 %>% 
-  semi_join(dsocio_vivos, by = "DNUM_IC")              # vivos
-
-df2 <- df1 %>% 
-  filter(CARTERA_ACTIVA_SN == "S")                    # cartera activa S
-
-df3 <- df2 %>% 
-  filter(PRODUCTO_PRINCIPAL != "Medicamento de alta complejidad")  # NO MAC
-
-df4 <- df3 %>% 
-  semi_join(productos_disca, by = "SUB_PRODUCTO_PRINCIPAL")        # solo subproductos DISCA
-
-
-subprod_counts <- df4 %>% 
-  group_by(SUB_PRODUCTO_PRINCIPAL) %>% 
-  summarise(SOCIOS = n_distinct(DNUM_IC), .groups = "drop") %>% 
-  arrange(desc(SOCIOS))
-
-ggplot(subprod_counts, aes(
-  x = SOCIOS,
-  y = reorder(SUB_PRODUCTO_PRINCIPAL, SOCIOS)
-)) +
-  geom_col() +
-  labs(
-    title = "Socios por subproducto (DISCA, NO MAC)",
-    x = "Cantidad de socios",
-    y = "Subproducto principal"
-  )
-
-```
 
