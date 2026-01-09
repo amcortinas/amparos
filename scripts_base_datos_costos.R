@@ -59,6 +59,11 @@ amparos_con_mas_de_un_asunto <- amparos_mac_disca %>%
   summarise(conteo=n()) %>% 
   filter(conteo>1)
 
+base_amparos_con_mas_de_un_asunto <- amparos_mac_disca %>% 
+  inner_join(amparos_con_mas_de_un_asunto %>% select(ASUNTO))
+
+sum(amparos_con_mas_de_un_asunto$conteo)
+
 amparos_mac_disca_univoco <- amparos_mac_disca %>% 
   anti_join(amparos_con_mas_de_un_asunto)
 
