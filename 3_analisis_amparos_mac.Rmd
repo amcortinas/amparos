@@ -66,6 +66,9 @@ invisible(Sys.setlocale("LC_CTYPE", "es_ES.UTF-8"))
 
 load("Z:/Gcia Presupuesto/DATA MINING/desarrollo/alejandro/laburo/amparos/amparos_consumos.RData")
 
+consumos_medicamentos_ic_amparos <- consumos_medicamentos_ic_amparos %>% 
+  filter(!DDES_CORTA_PRACTICA %in% c("MEDICAMENTOS AMBULATORIOS","MEDICAMENTOS GTOS DE DISPENSA"))
+
 amparos_mac <- amparos %>%
   filter(PRODUCTO_PRINCIPAL == "Medicamentos de Alta Complejidad- MAC")
 
@@ -100,8 +103,10 @@ motivo_baja_fallec <- consumos_medicamentos_ic_amparos %>%
 
 motivo_baja_fallec$DDES_MOTIVO_BAJA <- "Fallecimiento"
 
+motivo_baja_fallec$DNUM_IC <- as.numeric(motivo_baja_fallec$DNUM_IC)
+
 amparos_mac <- amparos %>% 
-  filter(PRODUCTO_PRINCIPAL == "Medicamentos de Alta Complejidad- MAC") %>% 
+  filter(PRODUCTO_PRINCIPAL == "Medicamentos de Alta Complejidad- MAC" & FECHA_INICIO>="2023-01-01") %>% 
   left_join(motivo_baja_fallec)
 
 amparos_mac$DDES_MOTIVO_BAJA[is.na(amparos_mac$DDES_MOTIVO_BAJA)] <- "Cartera"
@@ -139,4 +144,6 @@ left_join(consumos_medicamentos_ic_amparos %>%
   arrange(desc(IMPORTE_ACUMULADO))
 
 ```
+
+
 

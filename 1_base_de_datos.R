@@ -13,12 +13,13 @@ conn <- dbConnect(odbc::odbc(), driver = "sql server",
                   trusted_connection = "yes")
 
 
+amparos$FECHA_INICIO <- as.Date(as.character(amparos$FECHA_INICIO), format="%Y%m%d")
 
 amparos <- dbGetQuery(conn = conn, "SELECT * FROM [DB_CIENCIADEDATOS].[dbo].[CDD_SOCIOS_BASE_LEGALES]")
 
 
 amparos_mac <- amparos %>%
-  filter(PRODUCTO_PRINCIPAL == "Medicamentos de Alta Complejidad- MAC")
+  filter(PRODUCTO_PRINCIPAL == "Medicamentos de Alta Complejidad- MAC" & FECHA_INICIO >= "2023-01-01")
 
 #sum(is.na(amparos_mac$DNUM_IC))
 
@@ -84,7 +85,7 @@ consumos_medicamentos_ic_amparos <- dbGetQuery(conn = conn, paste("SELECT B.DNUM
       ,[CONTEXTO]
       ,[DID_PMI]
       ,B.DDES_MOTIVO_BAJA
-  FROM [DBPresupuestos].[dbo].[DWCONS_CONSUMOS_SITUACION_ACTUAL_202509] A
+  FROM [DBPresupuestos].[dbo].[DWCONS_CONSUMOS_SITUACION_ACTUAL_202510] A 
   LEFT JOIN DWDATAMART.dbo.DSOCIO B
   ON A.DID_SOCIO = B.DID_SOCIO
   LEFT JOIN DWDATAMART.dbo.DGRUPO_PRESUPUESTO C
